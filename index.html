@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Teachable Machine 示例</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #5b86e5 0%, #36d1dc 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            color: #333;
+        }
+        .card {
+            width: 100%;
+            max-width: 700px;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 18px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
+            padding: 32px;
+        }
+        h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        p.subtitle {
+            color: #555;
+            margin-bottom: 24px;
+        }
+        .section {
+            margin-bottom: 24px;
+        }
+        .section-title {
+            font-size: 16px;
+            color: #1e40af;
+            margin-bottom: 12px;
+            font-weight: 700;
+        }
+        .url-box {
+            background: #f3f4f6;
+            border-radius: 10px;
+            padding: 14px;
+            font-size: 13px;
+            word-break: break-all;
+            color: #111827;
+        }
+        .controls {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        button {
+            border: none;
+            border-radius: 10px;
+            padding: 12px 18px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+        button:hover {
+            transform: translateY(-1px);
+        }
+        .btn-primary {
+            background: #2563eb;
+            color: #fff;
+        }
+        .btn-secondary {
+            background: #e5e7eb;
+            color: #111827;
+        }
+        .btn-danger {
+            background: #dc2626;
+            color: white;
+        }
+        .btn-disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        #webcam-container {
+            width: 100%;
+            max-width: 520px;
+            margin: 0 auto 18px;
+            display: none;
+            justify-content: center;
+        }
+        #webcam {
+            width: 100%;
+            border-radius: 14px;
+            border: 2px solid #d1d5db;
+            background: black;
+        }
+        .predictions {
+            display: grid;
+            gap: 12px;
+        }
+        .prediction {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #f8fafc;
+            border-radius: 12px;
+            padding: 12px 14px;
+            border-left: 4px solid #2563eb;
+        }
+        .prediction-name {
+            font-weight: 700;
+            color: #111827;
+        }
+        .prediction-score {
+            font-size: 14px;
+            color: #2563eb;
+        }
+        .status {
+            margin-top: 12px;
+            font-size: 14px;
+            color: #111827;
+        }
+        @media (max-width: 640px) {
+            .controls {
+                flex-direction: column;
+            }
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Teachable Machine 图像识别</h1>
+        <p class="subtitle">使用 TensorFlow.js 和 Teachable Machine 模型进行实时摄像头预测。</p>
+        <div class="section">
+            <div class="section-title">模型地址</div>
+            <div class="url-box" id="urlBox"></div>
+        </div>
+        <div class="section controls">
+            <button class="btn-primary" id="loadModelBtn">加载模型</button>
+            <button class="btn-secondary btn-disabled" id="startBtn" disabled>开始摄像头</button>
+            <button class="btn-danger btn-disabled" id="stopBtn" disabled>停止</button>
+        </div>
+        <div id="webcam-container">
+            <canvas id="webcam"></canvas>
+        </div>
+        <div class="section predictions" id="predictions">
+            <div class="status" id="statusText">请先加载模型。</div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.js"></script>
+    <script>
+        const URL = "https://teachablemachine.withgoogle.com/models/ak94mlyoW//";
+        const urlBox = document.getElementById('urlBox');
+        const loadModelBtn = document.getElementById('loadModelBtn');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const webcamContainer = document.getElementById('webcam-container');
+        const statusText = document.getElementById('statusText');
+        const predictionsContainer = document.getElementById('predictions');
+
+        let model = null;
+        let webcam = null;
+        let maxPredictions = 0;
+        let isPredicting = false;
+        let requestId = null;
+
+        urlBox.textContent = URL;
+
+        loadModelBtn.addEventListener('click', async () => {
+            loadModelBtn.disabled = true;
+            loadModelBtn.textContent = '加载中...';
+            statusText.textContent = '正在加载模型，请稍候...';
+            try {
+                const modelURL = `${URL}model.json`;
+                const metadataURL = `${URL}metadata.json`;
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+                statusText.textContent = '模型加载成功，您可以启动摄像头。';
+                startBtn.disabled = false;
+                startBtn.classList.remove('btn-disabled');
+                loadModelBtn.textContent = '模型已加载';
+            } catch (error) {
+                statusText.textContent = `模型加载失败: ${error.message}`;
+                loadModelBtn.disabled = false;
+                loadModelBtn.textContent = '加载模型';
+                console.error(error);
+            }
+        });
+
+        startBtn.addEventListener('click', async () => {
+            if (!model) {
+                statusText.textContent = '请先加载模型。';
+                return;
+            }
+            startBtn.disabled = true;
+            startBtn.classList.add('btn-disabled');
+            stopBtn.disabled = false;
+            stopBtn.classList.remove('btn-disabled');
+            statusText.textContent = '正在启动摄像头...';
+            try {
+                webcam = new tmImage.Webcam(400, 400, true);
+                await webcam.setup();
+                await webcam.play();
+                webcam.canvas.id = 'webcam';
+                webcamContainer.innerHTML = '';
+                webcamContainer.appendChild(webcam.canvas);
+                webcamContainer.style.display = 'flex';
+                isPredicting = true;
+                predictLoop();
+                statusText.textContent = '摄像头已启动，开始预测。';
+                stopBtn.disabled = false;
+            } catch (error) {
+                statusText.textContent = `摄像头启动失败: ${error.message}`;
+                startBtn.disabled = false;
+                startBtn.classList.remove('btn-disabled');
+                console.error(error);
+            }
+        });
+
+        stopBtn.addEventListener('click', () => {
+            if (webcam) {
+                webcam.stop();
+            }
+            isPredicting = false;
+            if (requestId) {
+                cancelAnimationFrame(requestId);
+            }
+            webcamContainer.style.display = 'none';
+            statusText.textContent = '已停止摄像头。';
+            startBtn.disabled = false;
+            startBtn.classList.remove('btn-disabled');
+            stopBtn.disabled = true;
+            stopBtn.classList.add('btn-disabled');
+        });
+
+        async function predictLoop() {
+            if (!isPredicting) return;
+            webcam.update();
+            const prediction = await model.predict(webcam.canvas);
+            renderPredictions(prediction);
+            requestId = requestAnimationFrame(predictLoop);
+        }
+
+        function renderPredictions(prediction) {
+            predictionsContainer.innerHTML = '';
+            prediction.forEach(item => {
+                const percentage = (item.probability * 100).toFixed(1);
+                const block = document.createElement('div');
+                block.className = 'prediction';
+                block.innerHTML = `
+                    <div class="prediction-name">${item.className}</div>
+                    <div class="prediction-score">${percentage}%</div>
+                `;
+                predictionsContainer.appendChild(block);
+            });
+        }
+    </script>
+</body>
+</html>
